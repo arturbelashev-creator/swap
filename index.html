@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Frame Swapper</title>
+<title>Frame Swapper FAST</title>
 
 <style>
 *{box-sizing:border-box}
@@ -17,6 +17,7 @@ body{
 }
 
 .app{
+    width:100%;
     max-width:650px;
     margin:auto;
     background:#1c1c1c;
@@ -39,9 +40,9 @@ input{
     width:100%;
     padding:16px;
     background:#292929;
-    color:white;
     border:1px solid #444;
     border-radius:10px;
+    color:#fff;
 }
 
 button{
@@ -51,9 +52,10 @@ button{
     border:0;
     border-radius:10px;
     background:#287cff;
-    color:white;
+    color:#fff;
     font-size:17px;
     font-weight:bold;
+    cursor:pointer;
 }
 
 button:disabled{
@@ -66,6 +68,7 @@ button:disabled{
 }
 
 .progress{
+    width:100%;
     height:12px;
     background:#333;
     border-radius:20px;
@@ -77,6 +80,7 @@ button:disabled{
     width:0%;
     height:100%;
     background:#287cff;
+    transition:width .1s linear;
 }
 
 .status{
@@ -131,21 +135,22 @@ ABCD → ACBD
 <button
     id="download"
     class="download"
-    style="display:none"
     onclick="downloadResult()"
+    style="display:none"
 >
-Скачать WebM
+Скачать готовое WebM
 </button>
 
 <div class="info">
-    <b>Перестановка:</b><br>
-    A B C D → A C B D<br><br>
+<b>Перестановка кадров</b><br><br>
 
-    Видео переставляется физически.<br>
-    Оригинальный звук сохраняется.
+A B C D → A C B D<br><br>
+
+Оригинальный звук сохраняется.
 </div>
 
 </div>
+
 
 <script>
 
@@ -153,9 +158,9 @@ let selectedFile = null;
 let resultURL = null;
 
 
-/* =========================================
-   FILE
-========================================= */
+/* =====================================
+   ВЫБОР ФАЙЛА
+===================================== */
 
 document.getElementById("file").onchange = function(){
 
@@ -171,9 +176,9 @@ document.getElementById("file").onchange = function(){
 };
 
 
-/* =========================================
+/* =====================================
    START
-========================================= */
+===================================== */
 
 async function startProcessing(){
 
@@ -183,31 +188,12 @@ async function startProcessing(){
             "Сначала выберите видео";
 
         return;
-
     }
 
 
-    if(
-        typeof MediaStreamTrackProcessor ===
-        "undefined"
-    ){
-
-        document.getElementById("status").textContent =
-            "Откройте страницу в Chrome";
-
-        return;
-
-    }
-
-
-    document.getElementById("start").disabled =
-        true;
-
-    document.getElementById("file").disabled =
-        true;
-
-    document.getElementById("download").style.display =
-        "none";
+    document.getElementById("start").disabled = true;
+    document.getElementById("file").disabled = true;
+    document.getElementById("download").style.display = "none";
 
 
     try{
@@ -221,20 +207,17 @@ async function startProcessing(){
         document.getElementById("status").textContent =
             "Ошибка: " + error.message;
 
-        document.getElementById("start").disabled =
-            false;
-
-        document.getElementById("file").disabled =
-            false;
+        document.getElementById("start").disabled = false;
+        document.getElementById("file").disabled = false;
 
     }
 
 }
 
 
-/* =========================================
-   PROCESS VIDEO
-========================================= */
+/* =====================================
+   MAIN
+===================================== */
 
 async function processVideo(){
 
@@ -247,17 +230,14 @@ async function processVideo(){
     const video =
         document.createElement("video");
 
+
     video.muted = true;
-
     video.playsInline = true;
-
     video.preload = "auto";
 
 
     const inputURL =
-        URL.createObjectURL(
-            selectedFile
-        );
+        URL.createObjectURL(selectedFile);
 
 
     video.src =
@@ -277,10 +257,14 @@ async function processVideo(){
         video.duration;
 
 
-    if(!width || !height){
+    if(
+        !width ||
+        !height ||
+        !duration
+    ){
 
         throw new Error(
-            "Не удалось определить видео"
+            "Не удалось определить параметры видео"
         );
 
     }
@@ -288,50 +272,55 @@ async function processVideo(){
 
     setProgress(
         3,
-        "Подготовка..."
+        width +
+        "×" +
+        height +
+        " • запуск..."
     );
 
 
     /*
-       Запускаем видео.
+       ВАЖНО:
+
+       captureStream идёт в реальном времени.
+       Поэтому мы больше НЕ ждём reader.done.
     */
 
     await video.play();
 
 
-    /*
-       Получаем исходный поток.
-       В нём есть видео + аудио.
-    */
-
-    const inputStream =
+    const sourceStream =
         video.captureStream();
 
 
-    const videoTrack =
-        inputStream.getVideoTracks()[0];
+    const sourceVideoTrack =
+        sourceStream.getVideoTracks()[0];
 
 
-    const audioTracks =
-        inputStream.getAudioTracks();
-
-
-    if(!videoTrack){
+    if(!sourceVideoTrack){
 
         throw new Error(
-            "Не найден видеотрек"
+            "Не удалось получить видеопоток"
         );
 
     }
 
 
     /*
-       Читаем видеокадры последовательно.
+       Получаем аудио.
+    */
+
+    const audioTracks =
+        sourceStream.getAudioTracks();
+
+
+    /*
+       Processor.
     */
 
     const processor =
         new MediaStreamTrackProcessor({
-            track:videoTrack
+            track:sourceVideoTrack
         });
 
 
@@ -340,11 +329,12 @@ async function processVideo(){
 
 
     /*
-       Canvas для переставленного видео.
+       Canvas.
     */
 
     const canvas =
         document.createElement("canvas");
+
 
     canvas.width =
         width;
@@ -363,30 +353,32 @@ async function processVideo(){
 
 
     /*
-       Выходной видеопоток.
+       Очень важно:
+
+       0 FPS = ручная выдача кадров.
     */
 
     const outputStream =
-        canvas.captureStream(30);
+        canvas.captureStream(0);
 
 
     /*
-       ДОБАВЛЯЕМ ОРИГИНАЛЬНЫЙ ЗВУК.
+       Добавляем оригинальный звук.
     */
 
     for(
-        const track of audioTracks
+        const audioTrack of audioTracks
     ){
 
         outputStream.addTrack(
-            track
+            audioTrack
         );
 
     }
 
 
     /*
-       WebM с VP9 + Opus.
+       WebM.
     */
 
     let mime =
@@ -429,202 +421,277 @@ async function processVideo(){
 
 
     recorder.ondataavailable =
-    function(event){
+        function(e){
 
-        if(
-            event.data &&
-            event.data.size > 0
-        ){
+            if(
+                e.data &&
+                e.data.size > 0
+            ){
 
-            chunks.push(
-                event.data
-            );
+                chunks.push(e.data);
+
+            }
+
+        };
+
+
+    let recorderStopped = false;
+
+
+    const recorderDone =
+        new Promise(
+            resolve => {
+
+                recorder.onstop =
+                    function(){
+
+                        recorderStopped = true;
+
+                        resolve();
+
+                    };
+
+            }
+        );
+
+
+    /*
+       НАЧИНАЕМ ЗАПИСЬ
+    */
+
+    recorder.start(1000);
+
+
+    /*
+       Читаем видео.
+
+       Храним только 4 кадра.
+    */
+
+    let group = [];
+
+    let framesProcessed = 0;
+
+    let lastPercent = -1;
+
+
+    /*
+       Читаем кадры пока видео
+       реально идёт.
+
+       НЕ ждём reader.done.
+    */
+
+    const readLoop = async function(){
+
+        while(true){
+
+            const result =
+                await reader.read();
+
+
+            if(result.done){
+
+                break;
+
+            }
+
+
+            const frame =
+                result.value;
+
+
+            group.push(frame);
+
+
+            /*
+               Получили:
+
+               A B C D
+            */
+
+            if(group.length === 4){
+
+                /*
+                   A
+                */
+
+                drawAndSend(
+                    group[0],
+                    ctx,
+                    canvas,
+                    outputStream
+                );
+
+
+                /*
+                   C
+                */
+
+                drawAndSend(
+                    group[2],
+                    ctx,
+                    canvas,
+                    outputStream
+                );
+
+
+                /*
+                   B
+                */
+
+                drawAndSend(
+                    group[1],
+                    ctx,
+                    canvas,
+                    outputStream
+                );
+
+
+                /*
+                   D
+                */
+
+                drawAndSend(
+                    group[3],
+                    ctx,
+                    canvas,
+                    outputStream
+                );
+
+
+                /*
+                   Закрываем кадры.
+                */
+
+                for(
+                    const frameToClose of group
+                ){
+
+                    try{
+                        frameToClose.close();
+                    }catch(e){}
+
+                }
+
+
+                group = [];
+
+
+                framesProcessed += 4;
+
+
+                /*
+                   Прогресс.
+
+                   Видео идёт в реальном времени,
+                   поэтому timestamp кадра
+                   показывает реальный прогресс.
+                */
+
+                const currentTime =
+                    frame.timestamp / 1000000;
+
+
+                let percent =
+                    Math.floor(
+                        currentTime /
+                        duration *
+                        100
+                    );
+
+
+                percent =
+                    Math.min(
+                        98,
+                        percent
+                    );
+
+
+                if(
+                    percent !== lastPercent
+                ){
+
+                    lastPercent =
+                        percent;
+
+
+                    setProgress(
+                        percent,
+                        "Обработка: " +
+                        percent +
+                        "%"
+                    );
+
+                }
+
+            }
 
         }
 
     };
 
 
-    const recorderFinished =
-        new Promise(
-            resolve => {
-
-                recorder.onstop =
-                    resolve;
-
-            }
-        );
-
-
-    recorder.start(1000);
-
-
     /*
-       ВАЖНО:
-
-       В памяти одновременно
-       максимум 4 кадра.
+       Запускаем чтение,
+       но НЕ ждём его окончания.
     */
 
-    let group = [];
-
-    let frameNumber = 0;
-
-    let lastProgress = 0;
-
-
-    while(true){
-
-        const result =
-            await reader.read();
-
-
-        if(result.done){
-
-            break;
-
-        }
-
-
-        const frame =
-            result.value;
-
-
-        group.push(frame);
-
-
-        /*
-           Получили 4 кадра.
-        */
-
-        if(group.length === 4){
-
-            /*
-               A
-            */
-
-            await outputFrame(
-                group[0],
-                ctx,
-                canvas
-            );
-
-
-            /*
-               C
-            */
-
-            await outputFrame(
-                group[2],
-                ctx,
-                canvas
-            );
-
-
-            /*
-               B
-            */
-
-            await outputFrame(
-                group[1],
-                ctx,
-                canvas
-            );
-
-
-            /*
-               D
-            */
-
-            await outputFrame(
-                group[3],
-                ctx,
-                canvas
-            );
-
-
-            /*
-               Освобождаем память.
-            */
-
-            for(
-                const f of group
-            ){
-
-                try{
-                    f.close();
-                }catch(e){}
-
-            }
-
-
-            group = [];
-
-
-            frameNumber += 4;
-
-
-            const currentTime =
-                frame.timestamp /
-                1000000;
-
-
-            let progress =
-                Math.round(
-                    currentTime /
-                    duration *
-                    100
-                );
-
-
-            progress =
-                Math.min(
-                    99,
-                    progress
-                );
-
-
-            /*
-               Обновляем UI не на каждый кадр.
-            */
-
-            if(
-                progress !== lastProgress
-            ){
-
-                lastProgress =
-                    progress;
-
-
-                setProgress(
-                    progress,
-                    "Обработка: " +
-                    progress +
-                    "%"
-                );
-
-            }
-
-        }
-
-    }
+    readLoop().catch(
+        console.error
+    );
 
 
     /*
-       Если осталось 1-3 кадра,
-       тоже обрабатываем.
+       Ждём реальную длительность видео.
+
+       Это главное исправление.
+
+       Больше нет зависания на 99%.
+    */
+
+    await sleep(
+        duration * 1000 + 1000
+    );
+
+
+    /*
+       Останавливаем чтение.
+    */
+
+    try{
+
+        await reader.cancel();
+
+    }catch(e){}
+
+
+    /*
+       Обрабатываем остаток:
+
+       например A B C
     */
 
     if(group.length){
 
+        const copy =
+            [...group];
+
+
+        /*
+           Для неполной группы
+           просто сохраняем порядок.
+        */
+
         for(
-            const frame of group
+            const frame of copy
         ){
 
-            await outputFrame(
+            drawAndSend(
                 frame,
                 ctx,
-                canvas
+                canvas,
+                outputStream
             );
 
 
@@ -634,28 +701,40 @@ async function processVideo(){
 
         }
 
+
+        group = [];
+
     }
 
 
-    reader.releaseLock();
-
-
     /*
-       Даём последним кадрам
-       записаться.
+       Даём последним данным
+       попасть в MediaRecorder.
     */
 
-    await sleep(700);
-
-
-    recorder.stop();
-
-
-    await recorderFinished;
+    await sleep(500);
 
 
     /*
-       Создаём итоговый WebM.
+       Останавливаем запись.
+    */
+
+    if(!recorderStopped){
+
+        recorder.stop();
+
+    }
+
+
+    /*
+       Ждём окончание записи.
+    */
+
+    await recorderDone;
+
+
+    /*
+       Результат.
     */
 
     const blob =
@@ -665,6 +744,15 @@ async function processVideo(){
                 type:mime
             }
         );
+
+
+    if(!blob.size){
+
+        throw new Error(
+            "Получился пустой файл"
+        );
+
+    }
 
 
     if(resultURL){
@@ -677,15 +765,12 @@ async function processVideo(){
 
 
     resultURL =
-        URL.createObjectURL(
-            blob
-        );
+        URL.createObjectURL(blob);
 
 
-    URL.revokeObjectURL(
-        inputURL
-    );
-
+    /*
+       Готово.
+    */
 
     setProgress(
         100,
@@ -710,49 +795,53 @@ async function processVideo(){
     ).disabled =
         false;
 
-}
 
-
-/* =========================================
-   DRAW FRAME
-========================================= */
-
-function outputFrame(
-    frame,
-    ctx,
-    canvas
-){
-
-    return new Promise(
-        resolve => {
-
-            ctx.drawImage(
-                frame,
-                0,
-                0,
-                canvas.width,
-                canvas.height
-            );
-
-
-            /*
-               Canvas должен успеть
-               передать кадр recorder.
-            */
-
-            requestAnimationFrame(
-                () => resolve()
-            );
-
-        }
+    URL.revokeObjectURL(
+        inputURL
     );
 
 }
 
 
-/* =========================================
+/* =====================================
+   DRAW + SEND FRAME
+===================================== */
+
+function drawAndSend(
+    frame,
+    ctx,
+    canvas,
+    stream
+){
+
+    ctx.drawImage(
+        frame,
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+
+    /*
+       Ручная выдача кадра.
+    */
+
+    if(
+        typeof stream.requestFrame ===
+        "function"
+    ){
+
+        stream.requestFrame();
+
+    }
+
+}
+
+
+/* =====================================
    METADATA
-========================================= */
+===================================== */
 
 function waitMetadata(video){
 
@@ -760,26 +849,34 @@ function waitMetadata(video){
         (resolve,reject)=>{
 
             if(
-                video.readyState >= 1
+                video.readyState >= 1 &&
+                video.videoWidth > 0
             ){
 
                 resolve();
+
                 return;
 
             }
 
 
             video.onloadedmetadata =
-                resolve;
+                function(){
+
+                    resolve();
+
+                };
 
 
             video.onerror =
-                ()=>{
+                function(){
+
                     reject(
                         new Error(
-                            "Не удалось открыть видео"
+                            "Видео не открылось"
                         )
                     );
+
                 };
 
         }
@@ -788,9 +885,9 @@ function waitMetadata(video){
 }
 
 
-/* =========================================
+/* =====================================
    PROGRESS
-========================================= */
+===================================== */
 
 function setProgress(
     value,
@@ -811,9 +908,9 @@ function setProgress(
 }
 
 
-/* =========================================
+/* =====================================
    SLEEP
-========================================= */
+===================================== */
 
 function sleep(ms){
 
@@ -828,14 +925,17 @@ function sleep(ms){
 }
 
 
-/* =========================================
+/* =====================================
    DOWNLOAD
-========================================= */
+===================================== */
 
 function downloadResult(){
 
-    if(!resultURL)
+    if(!resultURL){
+
         return;
+
+    }
 
 
     const a =
@@ -863,4 +963,4 @@ function downloadResult(){
 </script>
 
 </body>
- </html>
+</html>
