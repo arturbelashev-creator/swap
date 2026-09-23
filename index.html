@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Frame Swapper</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#111;color:#fff;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:18px}.card{width:min(620px,100%);background:#1b1b1b;border:1px solid #333;border-radius:20px;padding:24px;box-shadow:0 15px 50px #0008}h1{text-align:center;margin:0 0 8px;font-size:30px}p.sub{text-align:center;color:#bbb;margin:0 0 22px}.row{display:grid;gap:12px}.btn{border:0;border-radius:12px;padding:14px 16px;font-size:16px;font-weight:700;cursor:pointer;background:#fff;color:#111}.btn:disabled{opacity:.45;cursor:not-allowed}.btn.secondary{background:#303030;color:#fff}.file{display:none}.status{margin:16px 0;padding:13px;border-radius:12px;background:#252525;color:#ddd;word-break:break-word}.bar{height:12px;background:#303030;border-radius:99px;overflow:hidden;margin:14px 0 18px}.bar>i{display:block;width:0;height:100%;background:#fff;transition:width .15s}.small{font-size:12px;color:#999;line-height:1.45}.video{width:100%;max-height:330px;border-radius:12px;background:#000;display:none;margin-top:14px}.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}.download{display:none}.ok{color:#9ee493}.warn{color:#ffd166}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>FRAME SWAPPER</h1>
+<p class="sub">Каждые 4 кадра: <b>ABCD → ACBD</b></p>
+<div class="row">
+<label class="btn" for="file">ВЫБРАТЬ ВИДЕО</label>
+<input id="file" class="file" type="file" accept="video/*">
+</div>
+<div id="status" class="status">Видео не выбрано</div>
+<video id="preview" class="video" controls></video>
+<div class="bar"><i id="bar"></i></div>
+<div class="actions">
+<button id="start" class="btn" disabled>ЗАМЕНИТЬ КАДРЫ</button>
+<button id="save" class="btn secondary download" disabled>СОХРАНИТЬ ВИДЕО</button>
+</div>
+<p class="small">Обработка выполняется прямо в браузере. Видео никуда не загружается. Первый запуск может потребовать загрузки движка FFmpeg из интернета; после этого обработка выполняется на устройстве.</p>
+</div>
+<script type="module">
+import { FFmpeg } from 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/dist/esm/index.js';
+import { fetchFile, toBlobURL } from 'https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.2/dist/esm/index.js';
+
+const fileEl=document.getElementById('file');
+const start=document.getElementById('start');
+const save=document.getElementById('save');
+const status=document.getElementById('status');
+const bar=document.getElementById('bar');
+const preview=document.getElementById('preview');
+let selected=null, outputBlob=null, outputName='FrameSwapper.mp4';
+const ffmpeg=new FFmpeg();
+let loaded=false;
+
+function setStatus(t, cls=''){status.textContent=t;status.className='status '+cls}
+function progress(p){bar.style.width=Math.max(0,Math.min(100,p))+'%'}
+
+ffmpeg.on('progress', ({progress:p})=>progress(p*100));
+
+async function loadFFmpeg(){
+ if(loaded)return;
+ setStatus('Загрузка движка FFmpeg…');
+ const base='https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm';
+ // Convert the cross-origin FFmpeg worker to a same-origin Blob URL.
+ // Without this, GitHub Pages blocks the Worker with a cross-origin error.
+ await ffmpeg.load({
+   coreURL: await toBlobURL(`${base}/ffmpeg-core.js`,'text/javascript'),
+   wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`,'application/wasm'),
+   workerURL: await toBlobURL(`${base}/ffmpeg-core.worker.js`,'text/javascript'),
+ });
+ loaded=true;
+}
+
+fileEl.addEventListener('change',()=>{
+ selected=fileEl.files?.[0]||null; outputBlob=null; save.style.display='none'; save.disabled=true; progress(0);
+ if(!selected){start.disabled=true;setStatus('Видео не выбрано');return}
+ start.disabled=false; preview.src=URL.createObjectURL(selected); preview.style.display='block';
+ setStatus(`Выбрано: ${selected.name}`);
+});
+
+start.addEventListener('click',async()=>{
+ if(!selected)return;
+ start.disabled=true;save.disabled=true;save.style.display='none';progress(0);
+ try{
+   await loadFFmpeg();
+   setStatus('Подготовка видео…');
+   const input='input.'+(selected.name.split('.').pop()||'mp4');
+   const output='frameswapper.mp4';
+   await ffmpeg.writeFile(input,await fetchFile(selected));
+   setStatus('Перестановка кадров…');
+   // Physical frame reorder: A B C D -> A C B D.
+   const filter="[0:v]split=4[v0][v1][v2][v3];[v0]select='eq(mod(n,4),0)'[a];[v1]select='eq(mod(n,4),1)'[b];[v2]select='eq(mod(n,4),2)'[c];[v3]select='eq(mod(n,4),3)'[d];[a][c][b][d]interleave=4:duration=shortest,setpts=N/FRAME_RATE/TB[outv]";
+   await ffmpeg.exec(['-y','-i',input,'-filter_complex',filter,'-map','[outv]','-map','0:a?','-c:v','mpeg4','-q:v','3','-c:a','aac','-b:a','192k','-shortest','-movflags','+faststart',output]);
+   const data=await ffmpeg.readFile(output);
+   outputBlob=new Blob([data.buffer],{type:'video/mp4'});
+   outputName='FrameSwapper_'+new Date().toISOString().replace(/[:.]/g,'-')+'.mp4';
+   preview.src=URL.createObjectURL(outputBlob); preview.style.display='block';
+   progress(100); setStatus('Готово! Видео обработано. Нажми «СОХРАНИТЬ ВИДЕО».','ok');
+   save.style.display='block';save.disabled=false;
+ }catch(e){console.error(e);setStatus('Ошибка: '+(e?.message||e),'warn');}
+ finally{start.disabled=false;}
+});
+
+save.addEventListener('click',()=>{
+ if(!outputBlob)return;
+ const a=document.createElement('a');a.href=URL.createObjectURL(outputBlob);a.download=outputName;a.click();
+ setTimeout(()=>URL.revokeObjectURL(a.href),30000);
+});
+</script>
+</body>
+</html>
